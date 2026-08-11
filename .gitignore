@@ -5,3 +5,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# 第三方数据集,用 RESULTS.md「复现方式」里的 curl 命令重新下载即可
+data/

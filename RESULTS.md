@@ -10,6 +10,9 @@
 2. **DFlash 在它的原生配置下是负收益。** 完整 16-token block 只有 **0.87×**,比不做推测解码还慢。它的最优点也在 cap 4(1.36×),但仍低于 DSpark。
 3. **cap 是最重要的调参项,最优值是 4,不是默认的 2,也不是** `auto`**。** 手动 `--max-draft 4` 比 `auto`(1.49×)明显更快。
 4. **cap 4 → 5 之间有一个拐点。**
+5. **接受长度强依赖内容与思考模式。** 关闭 thinking 后在标准数据集上,DSpark 的接受长度是
+  3.33(MT-Bench)/ 4.33(HumanEval)/ 4.35(GSM8K),远高于内置 prompt 的 2.3–2.7。同一批数据里
+   DFlash 完整 16-block 在 HumanEval 上接受长度高达 7.21(比 DSpark 高 66%),吞吐却仍低 15%。
 
 ```bash
 mlx-dspark generate \
@@ -19,8 +22,6 @@ mlx-dspark generate \
 ```
 
 ---
-
-
 
 ## Env
 
@@ -33,8 +34,6 @@ mlx-dspark generate \
 | mlx-lm / mlx-vlm | 0.31.3 / 0.6.12      |
 | mlx-dspark       | 0.7.0                |
 | Python           | 3.12.12              |
-
-
 
 
 ### 参与的三个 checkpoint
@@ -50,8 +49,6 @@ mlx-dspark generate \
 
 
 ---
-
-
 
 ## 一、模式对比(cap 2 与 auto)
 
@@ -80,8 +77,6 @@ math 类 prompt 最好预测(结构性最强),chat 最难 —— 这个规律在
 
 ---
 
-
-
 ## 二、cap 实验
 
 `--max-draft`(cap)是每轮提交给目标模型验证的草稿 token 数上限。
@@ -100,8 +95,6 @@ math 类 prompt 最好预测(结构性最强),chat 最难 —— 这个规律在
 | 5     | 68.8     | 1.46×     | 2.90 |                      |
 | 7     | 60.4     | 1.29×     | 3.08 | acceptance最高         |
 | auto  | 70.1     | 1.49×     | 2.68 | 偏保守                  |
-
-
 
 
 ### DFlash(block size = 16)
@@ -129,7 +122,35 @@ Finding:
 
 ---
 
+## 三、数据集上的平均接受长度
 
+前两节用的是 benchmark 内置的 3 条 prompt,样本太小。这一节改用标准数据集:MT-Bench(chat)、
+HumanEval(code)、GSM8K(math),各 60 条 prompt。
+
+
+
+
+| 配置              | MT-Bench (chat)     | HumanEval (code)     | GSM8K (math)         |
+| --------------- | ------------------- | -------------------- | -------------------- |
+| **DSpark cap4** | **3.33** · 86 tok/s | **4.33** · 107 tok/s | **4.35** · 114 tok/s |
+| DFlash cap4     | 2.92 · 68 tok/s     | 4.19 · 93 tok/s      | 3.74 · 88 tok/s      |
+| DFlash full16   | 3.38 · 47 tok/s     | **7.21** · 91 tok/s  | 5.26 · 76 tok/s      |
+
+
+
+
+原始数据:`accept_by_dataset.json`,脚本:`measure_accept.py`
+
+Finding:
+
+**1: 接受长度比内置 prompt 高(2.3–2.7 → 3.3–4.4)**
+
+**2: DFlash 用更高的接受长度换来了更低的吞吐,这是成本模型最干净的呈现。** HumanEval 上它的接受长度
+7.21,比 DSpark 的 4.33 高 66%,吞吐却是 91 对 107 tok/s,反而慢 15%。瓶颈不是猜得准不准,是验证宽度。
+
+**3: cap 4 仍然最优**
+
+---
 
 ## 个人理解
 
@@ -140,8 +161,6 @@ Markov head试图解决 DFlash 那个"后面的位置不知道前面猜了什么
 通过控制硬件和 target,所以剩下的差距只能来自算法本身。而且差距随 cap 扩大(0.08 → 0.19 → 0.35),正是 Markov head 解决的位置依赖问题。
 
 ---
-
-
 
 ## 复现方式
 
@@ -164,6 +183,18 @@ uv pip install --python .venv/bin/python mlx-dspark
 
 .venv/bin/mlx-dspark benchmark --model mlx-community/Qwen3-4B-8bit \
   --modes dspark --caps 2,4,5 --trials 5 --max-new-tokens 256 --json confirm_cap.json
+```
+
+数据集上的接受长度(第三节)。先下载数据集,再跑测量脚本:
+
+```bash
+mkdir -p data
+curl -sL -o data/mt_bench.jsonl   https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl
+curl -sL -o data/gsm8k_test.jsonl https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl
+curl -sL https://raw.githubusercontent.com/openai/human-eval/master/data/HumanEval.jsonl.gz | gunzip > data/humaneval.jsonl
+
+.venv/bin/python measure_accept.py 60 accept_by_dataset.json   # 约 14 分钟
+.venv/bin/python cap_by_dataset.py 40                          # 逐数据集扫 cap,约 10 分钟(尚未运行)
 ```
 
 单次生成(注意:冷启动的单次运行数字不可比 —— 冷跑 baseline 只有 38.1 tok/s,预热后是 43–47):
