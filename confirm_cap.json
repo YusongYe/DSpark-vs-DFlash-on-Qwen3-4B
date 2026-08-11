@@ -1,0 +1,83 @@
+{
+ "device": "Apple M4 Pro",
+ "mlx": "0.32.0",
+ "target": "mlx-community/Qwen3-4B-8bit",
+ "runs": [
+  {
+   "run": "baseline",
+   "tok_s": 46.0,
+   "accept": 1.0,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 51.2,
+     "accept": 1.0
+    },
+    "code": {
+     "tok_s": 43.6,
+     "accept": 1.0
+    },
+    "math": {
+     "tok_s": 43.3,
+     "accept": 1.0
+    }
+   }
+  },
+  {
+   "run": "dspark cap=2",
+   "tok_s": 69.3,
+   "accept": 2.27,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 65.9,
+     "accept": 2.17
+    },
+    "code": {
+     "tok_s": 65.9,
+     "accept": 2.11
+    },
+    "math": {
+     "tok_s": 76.2,
+     "accept": 2.52
+    }
+   }
+  },
+  {
+   "run": "dspark cap=4",
+   "tok_s": 77.1,
+   "accept": 2.74,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 73.1,
+     "accept": 2.51
+    },
+    "code": {
+     "tok_s": 70.9,
+     "accept": 2.49
+    },
+    "math": {
+     "tok_s": 87.3,
+     "accept": 3.21
+    }
+   }
+  },
+  {
+   "run": "dspark cap=5",
+   "tok_s": 57.3,
+   "accept": 2.9,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 53.2,
+     "accept": 2.56
+    },
+    "code": {
+     "tok_s": 49.9,
+     "accept": 2.56
+    },
+    "math": {
+     "tok_s": 68.7,
+     "accept": 3.57
+    }
+   }
+  }
+ ]
+}

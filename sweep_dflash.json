@@ -1,0 +1,140 @@
+{
+ "device": "Apple M4 Pro",
+ "mlx": "0.32.0",
+ "target": "mlx-community/Qwen3-4B-8bit",
+ "runs": [
+  {
+   "run": "baseline",
+   "tok_s": 43.7,
+   "accept": 1.0,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 43.8,
+     "accept": 1.0
+    },
+    "code": {
+     "tok_s": 44.0,
+     "accept": 1.0
+    },
+    "math": {
+     "tok_s": 43.4,
+     "accept": 1.0
+    }
+   }
+  },
+  {
+   "run": "dflash cap=1",
+   "tok_s": 44.6,
+   "accept": 1.68,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 44.1,
+     "accept": 1.64
+    },
+    "code": {
+     "tok_s": 44.1,
+     "accept": 1.63
+    },
+    "math": {
+     "tok_s": 45.5,
+     "accept": 1.77
+    }
+   }
+  },
+  {
+   "run": "dflash cap=2",
+   "tok_s": 54.8,
+   "accept": 2.08,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 51.5,
+     "accept": 1.95
+    },
+    "code": {
+     "tok_s": 53.5,
+     "accept": 2.02
+    },
+    "math": {
+     "tok_s": 59.4,
+     "accept": 2.27
+    }
+   }
+  },
+  {
+   "run": "dflash cap=4",
+   "tok_s": 59.6,
+   "accept": 2.39,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 50.2,
+     "accept": 2.06
+    },
+    "code": {
+     "tok_s": 57.4,
+     "accept": 2.26
+    },
+    "math": {
+     "tok_s": 71.2,
+     "accept": 2.86
+    }
+   }
+  },
+  {
+   "run": "dflash cap=8",
+   "tok_s": 44.4,
+   "accept": 2.57,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 35.8,
+     "accept": 2.06
+    },
+    "code": {
+     "tok_s": 41.2,
+     "accept": 2.38
+    },
+    "math": {
+     "tok_s": 56.1,
+     "accept": 3.28
+    }
+   }
+  },
+  {
+   "run": "dflash cap=16",
+   "tok_s": 38.2,
+   "accept": 2.64,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 31.3,
+     "accept": 2.14
+    },
+    "code": {
+     "tok_s": 35.6,
+     "accept": 2.45
+    },
+    "math": {
+     "tok_s": 47.8,
+     "accept": 3.32
+    }
+   }
+  },
+  {
+   "run": "dflash cap=auto",
+   "tok_s": 59.0,
+   "accept": 2.39,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 50.5,
+     "accept": 2.06
+    },
+    "code": {
+     "tok_s": 56.6,
+     "accept": 2.26
+    },
+    "math": {
+     "tok_s": 69.9,
+     "accept": 2.86
+    }
+   }
+  }
+ ]
+}

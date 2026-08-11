@@ -1,0 +1,159 @@
+{
+ "device": "Apple M4 Pro",
+ "mlx": "0.32.0",
+ "target": "mlx-community/Qwen3-4B-8bit",
+ "runs": [
+  {
+   "run": "baseline",
+   "tok_s": 47.0,
+   "accept": 1.0,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 49.2,
+     "accept": 1.0
+    },
+    "code": {
+     "tok_s": 48.1,
+     "accept": 1.0
+    },
+    "math": {
+     "tok_s": 43.8,
+     "accept": 1.0
+    }
+   }
+  },
+  {
+   "run": "dspark cap=1",
+   "tok_s": 53.2,
+   "accept": 1.76,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 51.2,
+     "accept": 1.68
+    },
+    "code": {
+     "tok_s": 51.8,
+     "accept": 1.7
+    },
+    "math": {
+     "tok_s": 56.6,
+     "accept": 1.9
+    }
+   }
+  },
+  {
+   "run": "dspark cap=2",
+   "tok_s": 67.5,
+   "accept": 2.27,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 64.9,
+     "accept": 2.17
+    },
+    "code": {
+     "tok_s": 63.7,
+     "accept": 2.11
+    },
+    "math": {
+     "tok_s": 74.0,
+     "accept": 2.52
+    }
+   }
+  },
+  {
+   "run": "dspark cap=3",
+   "tok_s": 77.1,
+   "accept": 2.52,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 68.9,
+     "accept": 2.35
+    },
+    "code": {
+     "tok_s": 66.6,
+     "accept": 2.28
+    },
+    "math": {
+     "tok_s": 95.9,
+     "accept": 2.94
+    }
+   }
+  },
+  {
+   "run": "dspark cap=4",
+   "tok_s": 84.8,
+   "accept": 2.74,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 82.4,
+     "accept": 2.51
+    },
+    "code": {
+     "tok_s": 80.5,
+     "accept": 2.49
+    },
+    "math": {
+     "tok_s": 91.4,
+     "accept": 3.21
+    }
+   }
+  },
+  {
+   "run": "dspark cap=5",
+   "tok_s": 68.8,
+   "accept": 2.9,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 59.6,
+     "accept": 2.56
+    },
+    "code": {
+     "tok_s": 62.0,
+     "accept": 2.56
+    },
+    "math": {
+     "tok_s": 84.8,
+     "accept": 3.57
+    }
+   }
+  },
+  {
+   "run": "dspark cap=7",
+   "tok_s": 60.4,
+   "accept": 3.08,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 54.4,
+     "accept": 2.67
+    },
+    "code": {
+     "tok_s": 50.2,
+     "accept": 2.54
+    },
+    "math": {
+     "tok_s": 76.5,
+     "accept": 4.02
+    }
+   }
+  },
+  {
+   "run": "dspark cap=auto",
+   "tok_s": 70.1,
+   "accept": 2.68,
+   "per_prompt": {
+    "chat": {
+     "tok_s": 66.4,
+     "accept": 2.39
+    },
+    "code": {
+     "tok_s": 64.3,
+     "accept": 2.4
+    },
+    "math": {
+     "tok_s": 79.7,
+     "accept": 3.25
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+# Python 虚拟环境(约 500 MB,用 uv 重建即可)
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

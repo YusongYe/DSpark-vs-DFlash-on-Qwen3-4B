@@ -1,0 +1,6 @@
+<think>
+Okay, I need to write a Python function that implements binary search. Let me think about how binary search works. So, binary search is an efficient algorithm for finding an item in a sorted list. It works by repeatedly dividing the search interval in half. The basic steps are: compare the target value to the middle element; if they are equal, return the index. If the target is less than the middle element, search the left half. Otherwise, search the right half. Repeat until the element is found or the interval is empty.
+First, I need to make sure the list is sorted. But the function's responsibility is to perform the search, so maybe the function assumes that the list is already sorted. The user is expected to pass a sorted list. So the function parameters would be the list and the target value.
+Let me outline the steps for the function:
+1. Initialize two pointers, left and right. Left starts at 0, right at len(list) - 1.
+2. While left
