@@ -1,6 +1,6 @@
 # DSpark vs DFlash on Qwen3-4B (Apple M4 Pro)
 
-在同一个 Qwen3-4B 目标模型上,对比 DeepSeek 的 **DSpark** 与 z-lab 的 **DFlash** 两个推测解码(speculative decoding)drafter,以及不做推测解码的 baseline。
+在同一个 Qwen3-4B 目标模型上,对比 DeepSeek 的 **DSpark** 与 z-lab 的 **DFlash** 两个speculative decoding drafter,以及不做推测解码的 baseline。
 
 ---
 
