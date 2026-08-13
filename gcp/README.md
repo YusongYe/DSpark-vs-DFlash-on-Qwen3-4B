@@ -49,7 +49,21 @@ df -h / ; free -g | head -2
 (脚本全程 bf16;T4 是 7.5、V100 是 7.0,都不支持 bf16,会直接报错)、
 **磁盘可用 ≥ 40 GB**(模型缓存 11 GB + 特征十几到二十几 GB)。
 
-### 磁盘不够就扩启动盘
+### 新建实例:在创建页面就设好
+
+创建页面 **Boot disk → Change**,面板里:
+
+- **Size (GB)** 填 `150`(默认 10 或 100 都不够);type 保持 Balanced persistent disk
+- **Operating system** 选 `Deep Learning on Linux`,Version 挑带 CUDA 12.x 的
+
+选 Deep Learning 镜像就**不用自己装驱动**,省掉下面那步 —— 第一次开机时它会问要不要
+装,确认即可。GPU 配额如果是 0(新项目常见),创建会直接报 quota 错误,去
+IAM & Admin → Quotas 申请。
+
+Spot 实例便宜六成但会被抢占,而 `gen_responses.py` 是全部生成完才写文件,被抢占就
+白跑一小时。第一次跑用标准实例。
+
+### 已有实例:扩启动盘
 
 比挂新盘简单,而且可以在机器运行中扩。先在机器外面(本地或 Cloud Shell):
 
@@ -65,7 +79,7 @@ sudo growpart /dev/nvme0n1 1 && sudo resize2fs /dev/nvme0n1p1 && df -h /
 
 ### 纯净镜像要自己装驱动
 
-Deep Learning 镜像预装了驱动;普通 Debian/Ubuntu 镜像没有,用 Google 的官方脚本:
+普通 Debian/Ubuntu 镜像没有驱动,用 Google 的官方脚本:
 
 ```bash
 curl -O https://raw.githubusercontent.com/GoogleCloudPlatform/compute-gpu-installation/main/linux/install_gpu_driver.py
@@ -73,6 +87,15 @@ sudo python3 install_gpu_driver.py      # 会编译内核模块,可能重启
 ```
 
 **先扩盘再装驱动** —— 编译本身要占几 GB。
+
+### 在哪敲这些命令
+
+实例列表里的 **SSH 按钮(SSH-in-browser)** 就是那台机器上的完整终端,环境安装和四个
+步骤全在里面做,本地不用装 gcloud。**Cloud Shell 不行** —— 它是另一台没有 GPU 的小
+机器,home 只有 5 GB,只适合跑上面那种 `gcloud` 命令。
+
+浏览器 SSH 的会话会随标签关闭或笔记本休眠而断,前台命令跟着死。**连上第一件事是
+`tmux`**,断了之后 `tmux attach` 回到原进度。第 1、2 步各约一小时,这步不能省。
 
 ## 环境
 
@@ -124,7 +147,6 @@ python eval_markov.py --markov /tmp/smoke.safetensors --n 4 --max-new 64
 `w2` 初始为零,两者必须相等;不相等说明接线错了。40 条数据训出来的 head 没有意义,
 这步只验证管线。
 
-正式跑记得用 `tmux`,SSH 断开不会中断。
 
 ## 运行顺序
 
