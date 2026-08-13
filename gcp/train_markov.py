@@ -10,12 +10,17 @@ w2 初始化为全零,所以训练开始时 Markov head 是恒等无操作 —�
 冻结主干更差。
 
 推理时 prev 是模型自己上一步的 argmax,训练时若全用真实 token 就有 exposure bias。
---scheduled-sampling 按概率混入模型自己的预测;默认关闭(先拿 teacher forcing 基线)。
+默认是纯 teacher forcing(先拿基线)。
+
+特征按分片流式读取:一次只把一个分片读进内存(20000 个 anchor 约 1.5 GB),所以
+数据总量不受机器内存限制 —— g2-standard-4 只有 15 GB 内存,而 20000 条数据的特征
+有 24 GB,全量载入会 OOM。
 """
 
 import argparse
 import glob
 import json
+import math
 import os
 
 import numpy as np
@@ -56,65 +61,96 @@ class MarkovHead(nn.Module):
         return self.markov_w2(self.markov_w1(prev_ids))
 
 
-class Shards(torch.utils.data.Dataset):
-    """把所有分片摊平成 (hidden, prev, label, 位置序号) 的独立样本。
+def load_shard(fp):
+    """读一个分片并摊平成独立位置。teacher forcing 下各位置互相独立。"""
+    z = np.load(fp)
+    h, p, l = z["hidden"], z["prev"], z["label"]      # [N, B-1, H], [N, B-1]
+    n, k, hid = h.shape
+    return (h.reshape(n * k, hid), p.reshape(n * k), l.reshape(n * k),
+            np.tile(np.arange(k, dtype=np.int16), n))
 
-    teacher forcing 下各位置互相独立,可以完全并行 —— 这是默认路径。
+
+class Batcher:
+    """按分片流式出 batch。一次只有一个分片在内存里。
+
+    验证集优先整片留出(最后一个分片);分片太少时退化为在片内按下标切,
+    保证冒烟测试(只有一个分片)也能跑。
     """
 
-    def __init__(self, feats):
+    def __init__(self, feats, batch, seed=0, val_frac=0.02):
         self.files = sorted(glob.glob(os.path.join(feats, "shard_*.npz")))
         if not self.files:
             raise RuntimeError(f"{feats} 里没有 shard_*.npz")
-        self.hidden, self.prev, self.label, self.pos = [], [], [], []
-        for fp in self.files:
-            z = np.load(fp)
-            h, p, l = z["hidden"], z["prev"], z["label"]     # [N, B-1, H], [N, B-1]
-            n, k, hid = h.shape
-            self.hidden.append(h.reshape(n * k, hid))
-            self.prev.append(p.reshape(n * k))
-            self.label.append(l.reshape(n * k))
-            self.pos.append(np.tile(np.arange(k, dtype=np.int16), n))
-        self.hidden = np.concatenate(self.hidden)
-        self.prev = np.concatenate(self.prev)
-        self.label = np.concatenate(self.label)
-        self.pos = np.concatenate(self.pos)
-        print(f"[data] {len(self.files)} 个分片,共 {len(self.hidden)} 个训练位置")
+        self.batch = batch
+        self.rng = np.random.default_rng(seed)
+        if len(self.files) >= 3:
+            self.train_files, self.val_files = self.files[:-1], self.files[-1:]
+            self.within = None
+            print(f"[data] {len(self.files)} 个分片,末片留作验证")
+        else:
+            self.train_files = self.val_files = self.files
+            self.within = val_frac
+            print(f"[data] 只有 {len(self.files)} 个分片,片内按 {val_frac:.0%} 切验证集")
 
-    def __len__(self):
-        return len(self.hidden)
+    def _idx(self, n, which):
+        if self.within is None:
+            return np.arange(n)
+        cut = int(n * (1 - self.within))
+        return np.arange(cut) if which == "train" else np.arange(cut, n)
 
-    def __getitem__(self, i):
-        return (torch.from_numpy(self.hidden[i]), int(self.prev[i]),
-                int(self.label[i]), int(self.pos[i]))
+    def iter(self, which="train", shuffle=True):
+        """训练时丢掉尾巴上不满一个 batch 的部分;验证时不丢 —— 验证集可能整个都比
+        一个 batch 小(冒烟测试只有一个分片时就是这样)。"""
+        files = self.train_files if which == "train" else self.val_files
+        order = self.rng.permutation(len(files)) if shuffle else np.arange(len(files))
+        for fi in order:
+            h, p, l, pos = load_shard(files[fi])
+            idx = self._idx(len(h), which)
+            if shuffle:
+                self.rng.shuffle(idx)
+            last = len(idx) - self.batch + 1 if which == "train" else len(idx)
+            for s in range(0, max(last, 0), self.batch):
+                sel = idx[s:s + self.batch]
+                yield h[sel], p[sel], l[sel], pos[sel]
+            del h, p, l, pos
 
 
-def evaluate(head, lm_w, loader, device, block_size, decay):
+def to_gpu(batch, device):
+    h, p, l, pos = batch
+    return (torch.from_numpy(h).to(device, torch.bfloat16, non_blocking=True),
+            torch.from_numpy(p.astype(np.int64)).to(device),
+            torch.from_numpy(l.astype(np.int64)).to(device),
+            torch.from_numpy(pos.astype(np.int64)).to(device))
+
+
+@torch.inference_mode()
+def evaluate(head, lm_w, batcher, device, block_size):
     """返回 (base top-1, with-markov top-1, 逐位置 with-markov top-1)。
 
-    top-1 命中率就是理论里的条件命中率 p,接受长度上限约 1/(1-p) —— 所以这个指标
-    直接预测最终的接受长度。
+    top-1 命中率就是理论里的条件命中率 p,接受长度上限约 1/(1-p) —— 所以不用跑
+    完整生成就能判断训练有没有效果。
     """
     head.eval()
     nb = nw = n = 0
     per_pos = np.zeros((block_size - 1, 2))
-    with torch.inference_mode():
-        for h, prev, lab, pos in loader:
-            h = h.to(device, torch.bfloat16, non_blocking=True)
-            prev, lab = prev.to(device), lab.to(device)
-            base = h @ lm_w.T
-            with_m = base + head(prev).to(base.dtype)
-            b_ok = (base.argmax(-1) == lab)
-            w_ok = (with_m.argmax(-1) == lab)
-            nb += b_ok.sum().item()
-            nw += w_ok.sum().item()
-            n += lab.numel()
-            for j in range(block_size - 1):
-                m = (pos == j)
-                if m.any():
-                    per_pos[j, 0] += w_ok.cpu()[m].sum().item()
-                    per_pos[j, 1] += m.sum().item()
+    for raw in batcher.iter("val", shuffle=False):
+        h, prev, lab, pos = to_gpu(raw, device)
+        base = h @ lm_w.T
+        b_ok = (base.argmax(-1) == lab)
+        w_ok = ((base + head(prev).to(base.dtype)).argmax(-1) == lab)
+        nb += b_ok.sum().item()
+        nw += w_ok.sum().item()
+        n += lab.numel()
+        pc = pos.cpu().numpy()
+        wc = w_ok.cpu().numpy()
+        for j in range(block_size - 1):
+            m = pc == j
+            if m.any():
+                per_pos[j, 0] += wc[m].sum()
+                per_pos[j, 1] += m.sum()
     head.train()
+    if n == 0:
+        raise RuntimeError("验证集为空 —— 分片太小或 batch 太大")
     pp = np.where(per_pos[:, 1] > 0, per_pos[:, 0] / np.maximum(per_pos[:, 1], 1), np.nan)
     return nb / n, nw / n, pp
 
@@ -141,40 +177,38 @@ def main():
     lm_w = load_lm_head_weight(args.target, V, H).to(device, torch.bfloat16)
     lm_w.requires_grad_(False)
 
-    ds = Shards(args.feats)
-    n_val = max(1, int(len(ds) * args.val_frac))
-    tr, va = torch.utils.data.random_split(
-        ds, [len(ds) - n_val, n_val], generator=torch.Generator().manual_seed(0))
-    dl_tr = torch.utils.data.DataLoader(tr, batch_size=args.batch, shuffle=True,
-                                        num_workers=4, pin_memory=True, drop_last=True)
-    dl_va = torch.utils.data.DataLoader(va, batch_size=args.batch, num_workers=2)
-
+    batcher = Batcher(args.feats, args.batch, val_frac=args.val_frac)
     head = MarkovHead(V, args.rank).to(device)
-    n_train = sum(p.numel() for p in head.parameters())
-    print(f"[model] 可训练参数 {n_train / 1e6:.1f}M (主干与 lm_head 冻结)")
+    print(f"[model] 可训练参数 {sum(p.numel() for p in head.parameters()) / 1e6:.1f}M "
+          f"(主干与 lm_head 冻结)")
 
     opt = torch.optim.AdamW(head.parameters(), lr=args.lr, weight_decay=0.0)
-    steps = args.epochs * len(dl_tr)
-    sched = torch.optim.lr_scheduler.OneCycleLR(
-        opt, max_lr=args.lr, total_steps=steps, pct_start=0.04)
-    # 位置权重:越靠后的位置对接受长度的边际贡献越小
-    w_pos = torch.tensor(
-        [float(np.exp(-j / args.decay_gamma)) for j in range(B - 1)], device=device)
+    # 总步数只是估算(分片级切分导致不精确),所以用会自己 clamp 的 lambda,
+    # 步数超出估算时不会像 OneCycleLR 那样直接抛异常
+    est = max(1, args.epochs * meta["positions"] // args.batch)
+    warm = max(1, int(0.04 * est))
 
-    b0, w0, _ = evaluate(head, lm_w, dl_va, device, B, args.decay_gamma)
+    def lr_at(s):
+        if s < warm:
+            return s / warm
+        return 0.5 * (1 + math.cos(math.pi * min(1.0, (s - warm) / max(1, est - warm))))
+
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_at)
+    w_pos = torch.tensor([math.exp(-j / args.decay_gamma) for j in range(B - 1)],
+                         device=device)
+
+    b0, w0, _ = evaluate(head, lm_w, batcher, device, B)
     print(f"[eval] 训练前  base top-1={b0:.4f}  with-markov={w0:.4f}  "
-          f"(应当相等,w2 初始为零)")
+          f"({'一致,接线正常' if abs(b0 - w0) < 1e-9 else '不一致 —— w2 初始为零,应当相等,检查接线'})")
 
     step = 0
     for ep in range(args.epochs):
-        for h, prev, lab, pos in dl_tr:
-            h = h.to(device, torch.bfloat16, non_blocking=True)
-            prev, lab, pos = prev.to(device), lab.to(device), pos.to(device)
+        for raw in batcher.iter("train", shuffle=True):
+            h, prev, lab, pos = to_gpu(raw, device)
             with torch.inference_mode():
                 base = h @ lm_w.T                      # 冻结,不需要梯度
             logits = base.clone().float() + head(prev).float()
-            loss = (F.cross_entropy(logits, lab, reduction="none")
-                    * w_pos[pos.long()]).mean()
+            loss = (F.cross_entropy(logits, lab, reduction="none") * w_pos[pos]).mean()
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
@@ -182,21 +216,22 @@ def main():
             sched.step()
             step += 1
             if step % 200 == 0:
-                print(f"  ep{ep} step{step}/{steps} loss={loss.item():.4f} "
+                print(f"  ep{ep} step{step}/~{est} loss={loss.item():.4f} "
                       f"lr={sched.get_last_lr()[0]:.2e}", flush=True)
 
-        b, w, pp = evaluate(head, lm_w, dl_va, device, B, args.decay_gamma)
-        ceil_b = 1 / max(1e-6, 1 - b)
-        ceil_w = 1 / max(1e-6, 1 - w)
-        print(f"[eval] ep{ep}  base p={b:.4f} (天花板 {ceil_b:.2f})  "
-              f"with-markov p={w:.4f} (天花板 {ceil_w:.2f})")
-        print(f"       逐位置 with-markov top-1: "
-              + " ".join(f"{x:.3f}" for x in pp))
+        if step == 0:
+            raise RuntimeError(f"一个 batch 都没跑到 —— 数据太少,把 --batch 降到 "
+                               f"{args.batch // 4} 以下再试")
 
-    from safetensors.torch import save_file
-    save_file({"markov_head.markov_w1.weight": head.markov_w1.weight.detach().cpu(),
-               "markov_head.markov_w2.weight": head.markov_w2.weight.detach().cpu()},
-              args.out)
+        b, w, pp = evaluate(head, lm_w, batcher, device, B)
+        print(f"[eval] ep{ep}  base p={b:.4f} (天花板 {1 / max(1e-6, 1 - b):.2f})  "
+              f"with-markov p={w:.4f} (天花板 {1 / max(1e-6, 1 - w):.2f})")
+        print("       逐位置 with-markov top-1: " + " ".join(f"{x:.3f}" for x in pp))
+
+        from safetensors.torch import save_file
+        save_file({"markov_head.markov_w1.weight": head.markov_w1.weight.detach().cpu(),
+                   "markov_head.markov_w2.weight": head.markov_w2.weight.detach().cpu()},
+                  args.out)
     print(f"[out] 写入 {args.out}")
 
 
